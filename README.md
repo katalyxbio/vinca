@@ -101,7 +101,3 @@ export PATH="$HOME/.cargo/bin:$PATH"
 - `src/processor.rs`  - Streaming read/repair processing pipeline
 - `src/tags.rs`       - Tag transfer and recalculation logic
 - `src/bam_io.rs`     - BAM header and I/O helpers
-
-## License
-
-This repository does not include a license file. Add one if you plan to distribute or publish the tool.
