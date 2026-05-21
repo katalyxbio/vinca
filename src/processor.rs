@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use indicatif::{ProgressBar, ProgressStyle};
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, TryRecvError};
 use std::collections::BTreeMap;
 use std::thread;
 use noodles::sam::alignment::RecordBuf;
@@ -51,6 +51,7 @@ impl Processor {
         
         let (tx_in, rx_in) = bounded::<WorkItem>(1000);
         let (tx_out, rx_out) = bounded::<Result<ProcessedItem>>(1000);
+        let (tx_err, rx_err) = bounded::<anyhow::Error>(1);
         let output_path = self.output_path.clone();
         
         let repair_header_clone = repair_header.clone();
@@ -89,6 +90,7 @@ impl Processor {
         for _ in 0..self.threads {
             let rx_in = rx_in.clone();
             let tx_out = tx_out.clone();
+            let tx_err = tx_err.clone();
             let repair_header = repair_header.clone();
 
             let handle = thread::spawn(move || -> Result<()> {
@@ -106,7 +108,7 @@ impl Processor {
                             }
                         }
                         Err(e) => {
-                            let _ = tx_out.send(Err(e));
+                            let _ = tx_err.send(e);
                             break;
                         }
                     }
@@ -119,6 +121,7 @@ impl Processor {
 
         drop(rx_in);
         drop(tx_out);
+    drop(tx_err);
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(ProgressStyle::default_spinner()
@@ -136,15 +139,27 @@ impl Processor {
             
             match (donor_item, repair_item) {
                 (Some(Ok(donor_rec)), Some(Ok(repair_rec))) => {
+                    match rx_err.try_recv() {
+                        Ok(err) => return Err(err),
+                        Err(TryRecvError::Empty) => {}
+                        Err(TryRecvError::Disconnected) => {}
+                    }
+
                     if donor_rec.name() != repair_rec.name() {
                         bail!("Mismatched read names: {:?}", donor_rec.name());
                     }
 
-                    tx_in.send(WorkItem {
+                    if tx_in.send(WorkItem {
                         index,
                         donor_rec,
                         repair_rec,
-                    })?;
+                    }).is_err() {
+                        if let Ok(err) = rx_err.try_recv() {
+                            return Err(err);
+                        }
+
+                        bail!("Worker channel closed unexpectedly while sending work");
+                    }
                     index += 1;
                     
                     processed += 1;
@@ -162,6 +177,12 @@ impl Processor {
 
         for handle in worker_handles {
             handle.join().expect("Worker thread panicked")?;
+        }
+
+        match rx_err.try_recv() {
+            Ok(err) => return Err(err),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {}
         }
         
         let final_count = writer_handle.join().expect("Writer thread panicked")?;
