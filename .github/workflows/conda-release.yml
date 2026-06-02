@@ -59,6 +59,7 @@ jobs:
             exit 1
           fi
           install -m 0755 "$bin" ../conda/binary/vinca
+          cp ../LICENSE ../conda/binary/LICENSE
 
       - name: Install rattler-build
         run: |
