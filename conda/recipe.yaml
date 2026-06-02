@@ -1,0 +1,29 @@
+schema_version: 1
+
+context:
+  version: ${{ env.get("VINCA_VERSION") }}
+
+package:
+  name: vinca
+  version: ${{ version }}
+
+source:
+  - path: ./binary
+
+build:
+  number: 0
+  script: |
+    mkdir -p $PREFIX/bin
+    cp vinca $PREFIX/bin/vinca
+    chmod +x $PREFIX/bin/vinca
+
+tests:
+  - script:
+      - vinca --help
+
+about:
+  homepage: https://github.com/katalyxbio/vinca
+  repository: https://github.com/katalyxbio/vinca
+  summary: Transfer and recalculate base-modification MM/ML tags between BAM files
+  license: CC-BY-NC-ND-4.0
+  license_file: ../LICENSE

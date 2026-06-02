@@ -1,0 +1,92 @@
+# Builds a conda package from the binary produced by cargo-dist and uploads
+# it as an asset on the same GitHub Release. Triggered after release.yml
+# publishes a release; can also be re-run manually against an existing tag.
+name: Conda Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to repackage (e.g. v0.1.1)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            conda_platform: linux-64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            conda_platform: linux-aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          # Strip a leading "v" and any "name-" prefix that cargo-dist tags allow.
+          v="${TAG##*/}"
+          v="${v##*-}"
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Download cargo-dist binary for ${{ matrix.target }}
+        run: |
+          mkdir -p conda/binary _dl
+          cd _dl
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "*${{ matrix.target }}*.tar.*"
+          archive=$(ls *${{ matrix.target }}*.tar.* | head -n1)
+          tar -xf "$archive"
+          bin=$(find . -type f -name vinca | head -n1)
+          if [ -z "$bin" ]; then
+            echo "vinca binary not found in $archive" >&2
+            ls -R
+            exit 1
+          fi
+          install -m 0755 "$bin" ../conda/binary/vinca
+
+      - name: Install rattler-build
+        run: |
+          arch=$(uname -m)
+          url="https://github.com/prefix-dev/rattler-build/releases/download/v0.40.0/rattler-build-${arch}-unknown-linux-musl"
+          curl -fsSL "$url" -o /tmp/rattler-build
+          chmod +x /tmp/rattler-build
+          sudo mv /tmp/rattler-build /usr/local/bin/rattler-build
+          rattler-build --version
+
+      - name: Build conda package
+        env:
+          VINCA_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          rattler-build build \
+            --recipe conda/recipe.yaml \
+            --target-platform ${{ matrix.conda_platform }} \
+            --output-dir conda/output \
+            --no-include-recipe
+
+      - name: Upload .conda to release
+        run: |
+          pkg=$(find conda/output -name "vinca-*.conda" | head -n1)
+          if [ -z "$pkg" ]; then
+            echo "no .conda artifact produced" >&2
+            find conda/output -type f
+            exit 1
+          fi
+          gh release upload "$TAG" "$pkg" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
