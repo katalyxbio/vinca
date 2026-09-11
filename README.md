@@ -1,6 +1,6 @@
 # Vinca
 
-![Vinca Logo](resources/Vinca.png)
+![Vinca Logo](resources/vinca_logo.jpg)
 
 `Vinca` is a Rust command-line tool for transferring and recalculating methylation tags (`MM`/`ML`) from a donor BAM to a repair BAM.
 
