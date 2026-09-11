@@ -25,5 +25,5 @@ about:
   homepage: https://github.com/katalyxbio/vinca
   repository: https://github.com/katalyxbio/vinca
   summary: Transfer and recalculate base-modification MM/ML tags between BAM files
-  license: PolyForm-Noncommercial-1.0.0
+  license: Apache-2.0
   license_file: LICENSE
